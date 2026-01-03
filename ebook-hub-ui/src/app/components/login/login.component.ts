@@ -20,8 +20,8 @@ export class LoginComponent {
 
     loginAdmin() {
         this.authService.login({ username: this.username, password: this.password }).subscribe({
-            next: (user) => {
-                if (user.role === 'Admin') {
+            next: (response) => {
+                if (response.role === 'Admin') {
                     this.router.navigate(['/admin']);
                 } else {
                     this.errorMessage = 'Not authorized as Admin';
@@ -34,13 +34,16 @@ export class LoginComponent {
         });
     }
 
-    // Google Login would typically involve an external library or window object interaction
-    // For now, we simulate the button action or assume a wrapper is used.
     loginUserGoogle() {
-        // Logic for Google Sign-In
-        // Example:
-        // google.accounts.id.prompt();
-        console.log('Google login clicked');
-        alert('Google Sign-In logic to be implemented with actual Client ID');
+        this.authService.loginWithGoogle().subscribe({
+            next: () => {
+                // Navigation is handled in AuthService, but can be here too.
+                console.log('Google login execution completed');
+            },
+            error: (err) => {
+                this.errorMessage = 'Google Login failed';
+                console.error(err);
+            }
+        });
     }
 }

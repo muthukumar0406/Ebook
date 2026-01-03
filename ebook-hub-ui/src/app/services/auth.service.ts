@@ -1,72 +1,92 @@
-import { Injectable, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { BehaviorSubject, Observable, tap } from 'rxjs';
-
-export interface User {
-    username: string;
-    role: 'Admin' | 'User';
-    token: string;
-}
+import { HttpClient } from '@angular/common/http';
+import { Auth, GoogleAuthProvider, authState, idToken, signInWithPopup, signOut } from '@angular/fire/auth';
+import { Observable, from, map, tap, switchMap, of } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 @Injectable({
     providedIn: 'root'
 })
 export class AuthService {
-    private apiUrl = 'http://localhost:5037/api/auth'; // Adjust port matching backend
-    private currentUserSubject = new BehaviorSubject<User | null>(this.getUserFromStorage());
-    public currentUser$ = this.currentUserSubject.asObservable();
+    private auth = inject(Auth);
+    private router = inject(Router);
+    private http = inject(HttpClient);
+    private apiUrl = 'http://localhost:5105/api/auth'; // Adjust based on environment
 
-    constructor(private http: HttpClient, private router: Router) { }
+    // Expose the current user directly from Firebase
+    user$ = authState(this.auth);
 
-    public get currentUserValue(): User | null {
-        return this.currentUserSubject.value;
+    // Signal or Observable for the token
+    idToken$ = idToken(this.auth);
+
+    constructor() { }
+
+    // Restore currentUserValue for backward compatibility (used by BookService and App)
+    get currentUserValue(): { token: string; role: string } | null {
+        const token = localStorage.getItem('token');
+        const role = localStorage.getItem('role'); // 'Admin' or 'User'
+        if (token) {
+            return { token, role: role || '' };
+        }
+        return null;
     }
 
-    private getUserFromStorage(): User | null {
-        const user = localStorage.getItem('currentUser');
-        return user ? JSON.parse(user) : null;
+    // Admin Login (Legacy/Specific)
+    login(credentials: any): Observable<any> {
+        return this.http.post(`${this.apiUrl}/admin-login`, credentials).pipe(
+            tap((response: any) => {
+                // Store token if needed, or handle as per existing Admin flow
+                localStorage.setItem('token', response.token);
+                localStorage.setItem('role', response.role);
+            })
+        );
     }
 
-    login(credentials: { username: string; password?: string; googleToken?: string }): Observable<any> {
-        // For Admin (username/password)
-        if (credentials.password) {
-            return this.http.post<any>(`${this.apiUrl}/login`, credentials).pipe(
-                tap(response => {
-                    // Mocking response structure if backend differs, but assuming returns { token, role, ... }
-                    const user: User = {
-                        username: credentials.username,
-                        role: 'Admin',
-                        token: response.token
-                    };
-                    this.storeUser(user);
-                })
-            );
-        }
-        // For User (Google)
-        else if (credentials.googleToken) {
-            return this.http.post<any>(`${this.apiUrl}/google-login`, { token: credentials.googleToken }).pipe(
-                tap(response => {
-                    const user: User = {
-                        username: response.email, // Assuming backend returns email
-                        role: 'User',
-                        token: response.token
-                    };
-                    this.storeUser(user);
-                })
-            );
-        }
-        throw new Error('Invalid credentials');
+    // Login with Google and verify with Backend
+    loginWithGoogle(): Observable<void> {
+        const provider = new GoogleAuthProvider();
+        return from(signInWithPopup(this.auth, provider)).pipe(
+            switchMap(result => {
+                const user = result.user;
+                return from(user.getIdToken()).pipe(
+                    map(token => ({ token, email: user.email, name: user.displayName, googleId: user.uid }))
+                );
+            }),
+            switchMap(payload => {
+                // Send token to backend for verification and user creation
+                return this.http.post(`${this.apiUrl}/google-login`, {
+                    idToken: payload.token,
+                    email: payload.email,
+                    name: payload.name,
+                    googleId: payload.googleId
+                });
+            }),
+            tap((response: any) => {
+                localStorage.setItem('token', response.token); // Backend JWT
+                localStorage.setItem('role', response.role);
+                this.router.navigate(['/']);
+            }),
+            map(() => void 0)
+        );
     }
 
     logout() {
-        localStorage.removeItem('currentUser');
-        this.currentUserSubject.next(null);
-        this.router.navigate(['/login']);
+        return from(signOut(this.auth)).pipe(
+            tap(() => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('role');
+                this.router.navigate(['/login']);
+            })
+        );
     }
 
-    private storeUser(user: User) {
-        localStorage.setItem('currentUser', JSON.stringify(user));
-        this.currentUserSubject.next(user);
+    // Helper to get current token promise
+    async getIdToken(): Promise<string | null> {
+        const user = this.auth.currentUser;
+        if (user) {
+            return user.getIdToken();
+        }
+        return null;
     }
 }

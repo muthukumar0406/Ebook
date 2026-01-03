@@ -44,24 +44,35 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Authentication
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
 {
+    var projectId = builder.Configuration["Firebase:ProjectId"];
+    options.Authority = $"https://securetoken.google.com/{projectId}";
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
+        ValidIssuer = $"https://securetoken.google.com/{projectId}",
         ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        ValidAudience = projectId,
+        ValidateLifetime = true
     };
 });
+
+// Initialize Firebase Admin SDK
+try
+{
+    FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions
+    {
+        Credential = Google.Apis.Auth.OAuth2.GoogleCredential.GetApplicationDefault()
+    });
+}
+catch (Exception ex)
+{
+    // Log or ignore if already likely initialized or no credentials found (dev mode)
+    // In production, you need GOOGLE_APPLICATION_CREDENTIALS set or explicit path.
+    Console.WriteLine($"Firebase Admin SDK warning: {ex.Message}");
+}
 
 // CORS (Allow Angular frontend)
 builder.Services.AddCors(options =>

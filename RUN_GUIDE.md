@@ -9,6 +9,14 @@ This guide describes how to run the Ebook Hub application (Backend API + Angular
 - **Node.js 20+** (for local dev)
 - **SQL Server** (or use the one in docker-compose if configured, currently configured to expect external or local SQL Express)
 
+## Configuration (Critical)
+
+> [!IMPORTANT]
+> **Before running the application, you must update the configuration files with your real Firebase credentials.**
+
+1.  **Frontend**: Open `ebook-hub-ui/src/environments/environment.ts` and replace the placeholder values with your Firebase config object.
+2.  **Backend**: Open `EbookHub.API/appsettings.json` and set the correct `ProjectId` under the `Firebase` section.
+
 ## Option 1: Run with Docker (Recommended)
 
 This method runs both the API and the UI in containers.

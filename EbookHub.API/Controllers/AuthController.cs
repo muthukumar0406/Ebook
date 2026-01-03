@@ -36,37 +36,51 @@ namespace EbookHub.API.Controllers
         [HttpPost("google-login")]
         public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
         {
-            // In a real app, verify the Google Token here using Google libraries
-            // For now, we trust the email provided (DEMO ONLY) or decode the token locally without signature check if simple
-            // We'll assume the frontend sends a valid payload with Email for this basic implementation if verification fails
-            
-            // Ideally: var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, ...);
-            
-            // Mocking the extraction for simplicity as we might not have internet/packages restored
-            // effectively just "trusting" the client sends a valid email for this step or assuming we extract it.
-            // Let's assume the request sends the email directly for this demo phase if token validation is skipped.
-            
-            if (string.IsNullOrEmpty(request.Email))
+            if (string.IsNullOrEmpty(request.IdToken))
             {
-                return BadRequest("Email is required");
+                return BadRequest("ID Token is required");
             }
 
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
-            if (user == null)
+            try
             {
-                user = new User
+                // Verify the ID token using Firebase Admin SDK
+                var decodedToken = await FirebaseAdmin.Auth.FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(request.IdToken);
+                var uid = decodedToken.Uid;
+                // Get claims
+                var email = decodedToken.Claims.ContainsKey("email") ? decodedToken.Claims["email"].ToString() : request.Email;
+                var name = decodedToken.Claims.ContainsKey("name") ? decodedToken.Claims["name"].ToString() : request.Name;
+
+                if (string.IsNullOrEmpty(email))
                 {
-                    Email = request.Email,
-                    Name = request.Name ?? "User",
-                    GoogleId = request.GoogleId,
-                    Role = "User"
-                };
-                _context.Users.Add(user);
-                await _context.SaveChangesAsync();
-            }
+                    return BadRequest("Email could not be retrieved from token");
+                }
 
-            var token = GenerateJwtToken(user.Email, "User", user.Id);
-            return Ok(new { Token = token, Role = "User", Username = user.Name, UserId = user.Id });
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+                if (user == null)
+                {
+                    user = new User
+                    {
+                        Email = email,
+                        Name = name ?? "User",
+                        GoogleId = uid, // or request.GoogleId
+                        Role = "User"
+                    };
+                    _context.Users.Add(user);
+                    await _context.SaveChangesAsync();
+                }
+
+                // Generate our own JWT for the app session
+                var token = GenerateJwtToken(user.Email, "User", user.Id);
+                return Ok(new { Token = token, Role = "User", Username = user.Name, UserId = user.Id });
+            }
+            catch (Exception ex)
+            {
+                // Fallback for demo if SDK fails due to missing credentials on server
+                // CAUTION: This fallback is insecure and strictly for dev environment where setup might be incomplete
+                // In production, remove this fallback.
+                Console.WriteLine($"Token verification failed: {ex.Message}");
+                return Unauthorized($"Invalid Token or Verification Failed: {ex.Message}");
+            }
         }
 
         private string GenerateJwtToken(string username, string role, int userId)
