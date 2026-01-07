@@ -13,3 +13,4 @@ dist/
 **/obj/
 .vs/
 *.user
+"serviceAccountKey.json" 
